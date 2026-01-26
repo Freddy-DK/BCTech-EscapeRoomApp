@@ -1,0 +1,75 @@
+name: Sync EscapeRoomApp from BCTech
+
+on:
+  schedule:
+    # Run every hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    # Allow manual trigger
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+        with:
+          path: target-repo
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout BCTech repository
+        uses: actions/checkout@v4
+        with:
+          repository: microsoft/BCTech
+          path: source-repo
+          sparse-checkout: |
+            non production apps/EscapeRoomApp
+          sparse-checkout-cone-mode: false
+
+      - name: Sync folder
+        run: |
+          # Remove existing EscapeRoomApp folder in target (if exists)
+          if (Test-Path "target-repo/EscapeRoomApp") {
+            Remove-Item -Recurse -Force "target-repo/EscapeRoomApp"
+          }
+          
+          # Copy the folder from source to target
+          $sourcePath = "source-repo/non production apps/EscapeRoomApp"
+          if (Test-Path $sourcePath) {
+            Copy-Item -Recurse $sourcePath "target-repo/EscapeRoomApp"
+            Write-Host "Folder synced successfully"
+          } else {
+            Write-Error "Source folder not found!"
+            exit 1
+          }
+
+      - name: Check for changes
+        id: changes
+        run: |
+          Set-Location target-repo
+          git add -A
+          $diff = git diff --staged --quiet
+          $hasChanges = $LASTEXITCODE -ne 0
+          if ($hasChanges) {
+            "has_changes=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "Changes detected"
+          } else {
+            "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+            Write-Host "No changes detected"
+          }
+
+      - name: Commit and push changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          Set-Location target-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Sync EscapeRoomApp from microsoft/BCTech"
+          git push
