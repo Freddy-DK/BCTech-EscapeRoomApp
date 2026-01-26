@@ -9,10 +9,14 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 defaults:
   run:
     shell: pwsh
+
+env:
+  SYNC_BRANCH: sync-from-bctech
 
 jobs:
   sync:
@@ -23,6 +27,7 @@ jobs:
         with:
           path: target-repo
           token: ${{ secrets.GHTOKENWORKFLOW }}
+          fetch-depth: 0
 
       - name: Checkout BCTech repository
         uses: actions/checkout@v4
@@ -32,6 +37,33 @@ jobs:
           sparse-checkout: |
             non production apps/EscapeRoomApp
           sparse-checkout-cone-mode: false
+
+      - name: Get source commit info
+        id: source-info
+        run: |
+          Set-Location source-repo
+          $commitSha = git rev-parse HEAD
+          $commitShort = git rev-parse --short HEAD
+          $commitMsg = git log -1 --pretty=%s
+          "commit_sha=$commitSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "commit_short=$commitShort" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "commit_msg=$commitMsg" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Create or update sync branch
+        run: |
+          Set-Location target-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if branch exists remotely
+          $branchExists = git ls-remote --heads origin ${{ env.SYNC_BRANCH }} | Measure-Object
+          if ($branchExists.Count -gt 0) {
+            git fetch origin ${{ env.SYNC_BRANCH }}
+            git checkout ${{ env.SYNC_BRANCH }}
+            git reset --hard origin/main
+          } else {
+            git checkout -B ${{ env.SYNC_BRANCH }}
+          }
 
       - name: Sync folder
         run: |
@@ -64,11 +96,48 @@ jobs:
             Write-Host "No changes detected"
           }
 
-      - name: Commit and push changes
+      - name: Commit and push to sync branch
         if: steps.changes.outputs.has_changes == 'true'
         run: |
           Set-Location target-repo
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Sync EscapeRoomApp from microsoft/BCTech"
-          git push
+          $commitShort = "${{ steps.source-info.outputs.commit_short }}"
+          git commit -m "Sync EscapeRoomApp from microsoft/BCTech ($commitShort)"
+          git push origin ${{ env.SYNC_BRANCH }} --force
+
+      - name: Create or update PR
+        if: steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GHTOKENWORKFLOW }}
+        run: |
+          Set-Location target-repo
+          
+          $commitSha = "${{ steps.source-info.outputs.commit_sha }}"
+          $commitShort = "${{ steps.source-info.outputs.commit_short }}"
+          $commitMsg = "${{ steps.source-info.outputs.commit_msg }}"
+          
+          $prBody = @"
+          ## Sync from microsoft/BCTech
+          
+          This PR syncs the EscapeRoomApp folder from [microsoft/BCTech](https://github.com/microsoft/BCTech).
+          
+          **Source commit:** [``$commitShort``](https://github.com/microsoft/BCTech/commit/$commitSha)
+          **Commit message:** $commitMsg
+          
+          ---
+          *This PR is automatically created and updated by the sync workflow.*
+          "@
+          
+          # Check if PR already exists
+          $existingPr = gh pr list --head "${{ env.SYNC_BRANCH }}" --json number --jq '.[0].number' 2>$null
+          
+          if ($existingPr) {
+            Write-Host "PR #$existingPr already exists, updating..."
+            gh pr edit $existingPr --body $prBody
+          } else {
+            Write-Host "Creating new PR"
+            gh pr create `
+              --head "${{ env.SYNC_BRANCH }}" `
+              --base "main" `
+              --title "Sync EscapeRoomApp from microsoft/BCTech" `
+              --body $prBody
+          }

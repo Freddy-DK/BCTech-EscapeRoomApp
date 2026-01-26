@@ -1,14 +1,16 @@
 name: Create Upstream PR to BCTech
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
     paths:
       - 'EscapeRoomApp/**'
+  workflow_dispatch:
+    # Allow manual trigger
 
 permissions:
   contents: read
-  pull-requests: read
 
 defaults:
   run:
@@ -18,15 +20,15 @@ env:
   UPSTREAM_REPO: microsoft/BCTech
   FORK_REPO: Freddy-DK/BCTech  # Change this to your fork of BCTech
   TARGET_FOLDER: "non production apps/EscapeRoomApp"
+  SYNC_BRANCH: sync-from-escaperoom-app
 
 jobs:
   create-upstream-pr:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout this repository PR
+      - name: Checkout this repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
           path: source-repo
 
       - name: Checkout fork of BCTech
@@ -45,30 +47,37 @@ jobs:
           git checkout -B main upstream/main
           git push origin main --force
 
-      - name: Create branch and copy changes
-        id: branch
+      - name: Get commit info
+        id: commit-info
         run: |
-          $branchName = "escaperoom-pr-${{ github.event.pull_request.number }}"
-          "branch_name=$branchName" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          
+          Set-Location source-repo
+          $commitSha = git rev-parse HEAD
+          $commitShort = git rev-parse --short HEAD
+          $commitMsg = git log -1 --pretty=%s
+          "commit_sha=$commitSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "commit_short=$commitShort" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "commit_msg=$commitMsg" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Create branch and copy changes
+        run: |
           Set-Location bctech-fork
-          git checkout -B $branchName main
-          
+          git checkout -B ${{ env.SYNC_BRANCH }} main
+
           # Remove existing folder and copy new content
           $targetPath = "${{ env.TARGET_FOLDER }}"
           if (Test-Path $targetPath) {
             Remove-Item -Recurse -Force $targetPath
           }
-          
+
           # Ensure parent directory exists
           $parentPath = Split-Path $targetPath -Parent
           if (-not (Test-Path $parentPath)) {
             New-Item -ItemType Directory -Path $parentPath -Force
           }
-          
+
           # Copy from this repo's EscapeRoomApp to BCTech's folder
           Copy-Item -Recurse "../source-repo/EscapeRoomApp" $targetPath
-          
+
           Write-Host "Files copied successfully"
 
       - name: Check for changes
@@ -91,43 +100,44 @@ jobs:
           Set-Location bctech-fork
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update EscapeRoomApp from PR #${{ github.event.pull_request.number }}"
-          git push origin ${{ steps.branch.outputs.branch_name }} --force
+          $commitShort = "${{ steps.commit-info.outputs.commit_short }}"
+          git commit -m "Update EscapeRoomApp ($commitShort)"
+          git push origin ${{ env.SYNC_BRANCH }} --force
 
       - name: Create or update PR on upstream
         if: steps.changes.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ secrets.GHTOKENWORKFLOW }}
         run: |
-          $branchName = "${{ steps.branch.outputs.branch_name }}"
-          $prNumber = "${{ github.event.pull_request.number }}"
-          $prTitle = "${{ github.event.pull_request.title }}"
-          $prUrl = "${{ github.event.pull_request.html_url }}"
+          $commitSha = "${{ steps.commit-info.outputs.commit_sha }}"
+          $commitShort = "${{ steps.commit-info.outputs.commit_short }}"
+          $commitMsg = "${{ steps.commit-info.outputs.commit_msg }}"
           $forkOwner = "${{ env.FORK_REPO }}".Split('/')[0]
+          $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
           
           $prBody = @"
           ## EscapeRoomApp Update
           
-          This PR was automatically created from: $prUrl
+          This PR syncs changes from [${{ github.repository }}]($repoUrl).
           
-          **Original PR Title:** $prTitle
+          **Source commit:** [``$commitShort``]($repoUrl/commit/$commitSha)
+          **Commit message:** $commitMsg
           
           ---
-          *This PR is automatically updated when the source PR is updated.*
+          *This PR is automatically created and updated when changes are pushed to main.*
           "@
           
           # Check if PR already exists
-          $existingPr = gh pr list --repo "${{ env.UPSTREAM_REPO }}" --head "${forkOwner}:${branchName}" --json number --jq '.[0].number' 2>$null
+          $existingPr = gh pr list --repo "${{ env.UPSTREAM_REPO }}" --head "${forkOwner}:${{ env.SYNC_BRANCH }}" --json number --jq '.[0].number' 2>$null
           
           if ($existingPr) {
-            Write-Host "PR #$existingPr already exists, it will be updated with the pushed changes"
-            # Update PR body
+            Write-Host "PR #$existingPr already exists, updating..."
             gh pr edit $existingPr --repo "${{ env.UPSTREAM_REPO }}" --body $prBody
           } else {
             Write-Host "Creating new PR on upstream repository"
             gh pr create --repo "${{ env.UPSTREAM_REPO }}" `
-              --head "${forkOwner}:${branchName}" `
+              --head "${forkOwner}:${{ env.SYNC_BRANCH }}" `
               --base "main" `
-              --title "Update EscapeRoomApp (from PR #$prNumber)" `
+              --title "Update EscapeRoomApp" `
               --body $prBody
           }
