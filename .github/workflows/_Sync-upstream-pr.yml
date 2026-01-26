@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.FORK_REPO }}
-          token: ${{ secrets.FORKPAT }}
+          token: ${{ secrets.FORKREPOPAT }}
           path: bctech-fork
           fetch-depth: 0
 
