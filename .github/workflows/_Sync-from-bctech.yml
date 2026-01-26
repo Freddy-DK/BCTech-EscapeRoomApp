@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: target-repo
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GHTOKENWORKFLOW }}
 
       - name: Checkout BCTech repository
         uses: actions/checkout@v4
