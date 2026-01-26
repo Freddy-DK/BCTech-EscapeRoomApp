@@ -55,8 +55,7 @@ jobs:
         run: |
           Set-Location target-repo
           git add -A
-          $diff = git diff --staged --quiet
-          $hasChanges = $LASTEXITCODE -ne 0
+          $hasChanges = (git diff --staged --name-only | Measure-Object).Count -gt 0
           if ($hasChanges) {
             "has_changes=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
             Write-Host "Changes detected"
