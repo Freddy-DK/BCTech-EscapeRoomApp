@@ -44,8 +44,8 @@ jobs:
           Set-Location bctech-fork
           git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git"
           git fetch upstream
-          git checkout -B main upstream/main
-          git push origin main --force
+          git checkout -B master upstream/master
+          git push origin master --force
 
       - name: Get commit info
         id: commit-info
@@ -61,7 +61,7 @@ jobs:
       - name: Create branch and copy changes
         run: |
           Set-Location bctech-fork
-          git checkout -B ${{ env.SYNC_BRANCH }} main
+          git checkout -B ${{ env.SYNC_BRANCH }} master
 
           # Remove existing folder and copy new content
           $targetPath = "${{ env.TARGET_FOLDER }}"
@@ -137,7 +137,7 @@ jobs:
             Write-Host "Creating new PR on upstream repository"
             gh pr create --repo "${{ env.UPSTREAM_REPO }}" `
               --head "${forkOwner}:${{ env.SYNC_BRANCH }}" `
-              --base "main" `
+              --base "master" `
               --title "Update EscapeRoomApp" `
               --body $prBody
           }
