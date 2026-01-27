@@ -29,13 +29,13 @@ jobs:
           token: ${{ secrets.FORKREPOPAT }}
           fetch-depth: 0
 
-      - name: Checkout BCTech repository
+      - name: Checkout BCTech fork repository
         uses: actions/checkout@v4
         with:
-          repository: microsoft/BCTech
+          repository: ${{ vars.FORK_REPO }}
           path: source-repo
           sparse-checkout: |
-            non production apps/EscapeRoomApp
+            ${{ vars.BCTECH_SOURCE_FOLDER }}
           sparse-checkout-cone-mode: false
 
       - name: Get source commit info
@@ -67,18 +67,21 @@ jobs:
 
       - name: Sync folder
         run: |
-          # Remove existing EscapeRoomApp folder in target (if exists)
-          if (Test-Path "target-repo/EscapeRoomApp") {
-            Remove-Item -Recurse -Force "target-repo/EscapeRoomApp"
+          $targetFolder = "${{ vars.LOCAL_FOLDER }}"
+          $sourceFolder = "${{ vars.BCTECH_SOURCE_FOLDER }}"
+          
+          # Remove existing folder in target (if exists)
+          if (Test-Path "target-repo/$targetFolder") {
+            Remove-Item -Recurse -Force "target-repo/$targetFolder"
           }
           
           # Copy the folder from source to target
-          $sourcePath = "source-repo/non production apps/EscapeRoomApp"
+          $sourcePath = "source-repo/$sourceFolder"
           if (Test-Path $sourcePath) {
-            Copy-Item -Recurse $sourcePath "target-repo/EscapeRoomApp"
+            Copy-Item -Recurse $sourcePath "target-repo/$targetFolder"
             Write-Host "Folder synced successfully"
           } else {
-            Write-Error "Source folder not found!"
+            Write-Error "Source folder not found: $sourcePath"
             exit 1
           }
 
@@ -101,7 +104,7 @@ jobs:
         run: |
           Set-Location target-repo
           $commitShort = "${{ steps.source-info.outputs.commit_short }}"
-          git commit -m "Sync EscapeRoomApp from microsoft/BCTech ($commitShort)"
+          git commit -m "Sync ${{ vars.LOCAL_FOLDER }} from ${{ vars.FORK_REPO }} ($commitShort)"
           git push origin ${{ env.SYNC_BRANCH }} --force
 
       - name: Create or update PR
@@ -111,16 +114,17 @@ jobs:
         run: |
           Set-Location target-repo
           
+          $forkRepo = "${{ vars.FORK_REPO }}"
           $commitSha = "${{ steps.source-info.outputs.commit_sha }}"
           $commitShort = "${{ steps.source-info.outputs.commit_short }}"
           $commitMsg = "${{ steps.source-info.outputs.commit_msg }}"
           
           $prBody = @"
-          ## Sync from microsoft/BCTech
+          ## Sync from $forkRepo
           
-          This PR syncs the EscapeRoomApp folder from [microsoft/BCTech](https://github.com/microsoft/BCTech).
+          This PR syncs the ${{ vars.LOCAL_FOLDER }} folder from [$forkRepo](https://github.com/$forkRepo).
           
-          **Source commit:** [``$commitShort``](https://github.com/microsoft/BCTech/commit/$commitSha)
+          **Source commit:** [``$commitShort``](https://github.com/$forkRepo/commit/$commitSha)
           **Commit message:** $commitMsg
           
           ---
@@ -138,6 +142,6 @@ jobs:
             gh pr create `
               --head "${{ env.SYNC_BRANCH }}" `
               --base "main" `
-              --title "Sync EscapeRoomApp from microsoft/BCTech" `
+              --title "Sync ${{ vars.LOCAL_FOLDER }} from $forkRepo" `
               --body $prBody
           }

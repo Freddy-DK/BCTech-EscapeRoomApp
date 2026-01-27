@@ -1,9 +1,9 @@
-name: Create Upstream PR to BCTech
+name: Create PR on BCTech Fork
 
 on:
   push:
     branches:
-      - test
+      - main
     paths:
       - 'EscapeRoomApp/**'
   workflow_dispatch:
@@ -17,13 +17,10 @@ defaults:
     shell: pwsh
 
 env:
-  UPSTREAM_REPO: microsoft/BCTech
-  FORK_REPO: Freddy-DK/BCTech  # Change this to your fork of BCTech
-  TARGET_FOLDER: "non production apps/EscapeRoomApp"
   SYNC_BRANCH: sync-from-escaperoom-app
 
 jobs:
-  create-upstream-pr:
+  create-fork-pr:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout this repository
@@ -31,21 +28,13 @@ jobs:
         with:
           path: source-repo
 
-      - name: Checkout fork of BCTech
+      - name: Checkout BCTech fork
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.FORK_REPO }}
+          repository: ${{ vars.FORK_REPO }}
           token: ${{ secrets.FORKREPOPAT }}
           path: bctech-fork
           fetch-depth: 0
-
-      - name: Sync fork with upstream
-        run: |
-          Set-Location bctech-fork
-          git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git"
-          git fetch upstream
-          git checkout -B master upstream/master
-          git push origin master --force
 
       - name: Get commit info
         id: commit-info
@@ -61,22 +50,31 @@ jobs:
       - name: Create branch and copy changes
         run: |
           Set-Location bctech-fork
-          git checkout -B ${{ env.SYNC_BRANCH }} master
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Get default branch
+          $defaultBranch = git remote show origin | Select-String "HEAD branch:" | ForEach-Object { $_.Line -replace ".*HEAD branch:\s*", "" }
+          Write-Host "Default branch: $defaultBranch"
+          
+          git checkout -B ${{ env.SYNC_BRANCH }} origin/$defaultBranch
 
           # Remove existing folder and copy new content
-          $targetPath = "${{ env.TARGET_FOLDER }}"
+          $targetPath = "${{ vars.BCTECH_SOURCE_FOLDER }}"
+          $localFolder = "${{ vars.LOCAL_FOLDER }}"
+          
           if (Test-Path $targetPath) {
             Remove-Item -Recurse -Force $targetPath
           }
 
           # Ensure parent directory exists
           $parentPath = Split-Path $targetPath -Parent
-          if (-not (Test-Path $parentPath)) {
+          if ($parentPath -and -not (Test-Path $parentPath)) {
             New-Item -ItemType Directory -Path $parentPath -Force
           }
 
-          # Copy from this repo's EscapeRoomApp to BCTech's folder
-          Copy-Item -Recurse "../source-repo/EscapeRoomApp" $targetPath
+          # Copy from this repo to BCTech fork's folder
+          Copy-Item -Recurse "../source-repo/$localFolder" $targetPath
 
           Write-Host "Files copied successfully"
 
@@ -98,25 +96,27 @@ jobs:
         if: steps.changes.outputs.has_changes == 'true'
         run: |
           Set-Location bctech-fork
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           $commitShort = "${{ steps.commit-info.outputs.commit_short }}"
-          git commit -m "Update EscapeRoomApp ($commitShort)"
+          git commit -m "Update ${{ vars.BCTECH_SOURCE_FOLDER }} ($commitShort)"
           git push origin ${{ env.SYNC_BRANCH }} --force
 
-      - name: Create or update PR on upstream
+      - name: Create or update PR on fork
         if: steps.changes.outputs.has_changes == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GHTOKENWORKFLOW }}
+          GH_TOKEN: ${{ secrets.FORKREPOPAT }}
         run: |
+          $forkRepo = "${{ vars.FORK_REPO }}"
           $commitSha = "${{ steps.commit-info.outputs.commit_sha }}"
           $commitShort = "${{ steps.commit-info.outputs.commit_short }}"
           $commitMsg = "${{ steps.commit-info.outputs.commit_msg }}"
-          $forkOwner = "${{ env.FORK_REPO }}".Split('/')[0]
           $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
           
+          # Get default branch
+          Set-Location bctech-fork
+          $defaultBranch = git remote show origin | Select-String "HEAD branch:" | ForEach-Object { $_.Line -replace ".*HEAD branch:\s*", "" }
+          
           $prBody = @"
-          ## EscapeRoomApp Update
+          ## ${{ vars.LOCAL_FOLDER }} Update
           
           This PR syncs changes from [${{ github.repository }}]($repoUrl).
           
@@ -125,19 +125,20 @@ jobs:
           
           ---
           *This PR is automatically created and updated when changes are pushed to main.*
+          *To sync upstream to microsoft/BCTech, create a PR manually from this branch.*
           "@
           
           # Check if PR already exists
-          $existingPr = gh pr list --repo "${{ env.UPSTREAM_REPO }}" --head "${forkOwner}:${{ env.SYNC_BRANCH }}" --json number --jq '.[0].number' 2>$null
+          $existingPr = gh pr list --repo "$forkRepo" --head "${{ env.SYNC_BRANCH }}" --json number --jq '.[0].number' 2>$null
           
           if ($existingPr) {
             Write-Host "PR #$existingPr already exists, updating..."
-            gh pr edit $existingPr --repo "${{ env.UPSTREAM_REPO }}" --body $prBody
+            gh pr edit $existingPr --repo "$forkRepo" --body $prBody
           } else {
-            Write-Host "Creating new PR on upstream repository"
-            gh pr create --repo "${{ env.UPSTREAM_REPO }}" `
-              --head "${forkOwner}:${{ env.SYNC_BRANCH }}" `
-              --base "master" `
-              --title "Update EscapeRoomApp" `
+            Write-Host "Creating new PR on fork repository"
+            gh pr create --repo "$forkRepo" `
+              --head "${{ env.SYNC_BRANCH }}" `
+              --base "$defaultBranch" `
+              --title "Update ${{ vars.LOCAL_FOLDER }}" `
               --body $prBody
           }
