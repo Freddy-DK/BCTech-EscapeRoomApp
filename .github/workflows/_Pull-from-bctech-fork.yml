@@ -118,16 +118,27 @@ jobs:
           TARGET_FOLDER: ${{ vars.LOCAL_FOLDER }}
           SOURCE_FOLDER: ${{ vars.BCTECH_SOURCE_FOLDER }}
         run: |
+          Write-Host "Current directory: $(Get-Location)"
+          Write-Host "SOURCE_FOLDER env var: '$env:SOURCE_FOLDER'"
+          Write-Host "SOURCE_FOLDER bytes: $([System.Text.Encoding]::UTF8.GetBytes($env:SOURCE_FOLDER) -join ',')"
+          Write-Host ""
+          Write-Host "Contents of source-repo:"
+          Get-ChildItem "source-repo" -Depth 1
+          Write-Host ""
+          
           # Remove existing folder in target (if exists)
-          $targetPath = "target-repo/$env:TARGET_FOLDER"
-          if (Test-Path $targetPath) {
-            Remove-Item -Recurse -Force $targetPath
+          $targetPath = Join-Path "target-repo" $env:TARGET_FOLDER
+          if (Test-Path -LiteralPath $targetPath) {
+            Remove-Item -LiteralPath $targetPath -Recurse -Force
           }
           
           # Copy the folder from source to target
-          $sourcePath = "source-repo/$env:SOURCE_FOLDER"
-          if (Test-Path $sourcePath) {
-            Copy-Item -Recurse $sourcePath $targetPath
+          $sourcePath = Join-Path "source-repo" $env:SOURCE_FOLDER
+          Write-Host "Constructed source path: '$sourcePath'"
+          Write-Host "Test-Path result: $(Test-Path -LiteralPath $sourcePath)"
+          
+          if (Test-Path -LiteralPath $sourcePath) {
+            Copy-Item -LiteralPath $sourcePath -Destination $targetPath -Recurse
             Write-Host "Folder synced successfully"
           } else {
             Write-Error "Source folder not found: $sourcePath"
