@@ -76,6 +76,16 @@ jobs:
             ${{ vars.BCTECH_SOURCE_FOLDER }}
           sparse-checkout-cone-mode: false
 
+      - name: Debug - List checked out contents
+        run: |
+          Write-Host "Contents of source-repo:"
+          Get-ChildItem -Path source-repo -Recurse -Depth 3 | ForEach-Object {
+            Write-Host $_.FullName
+          }
+          Write-Host ""
+          Write-Host "Looking for: source-repo/${{ vars.BCTECH_SOURCE_FOLDER }}"
+          Write-Host "Path exists: $(Test-Path 'source-repo/${{ vars.BCTECH_SOURCE_FOLDER }}')"
+
       - name: Get source commit info
         id: source-info
         run: |
