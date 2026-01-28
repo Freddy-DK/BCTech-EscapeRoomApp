@@ -37,7 +37,7 @@ jobs:
             $errors += "Secret 'FORKREPOPAT' is not set"
           }
           
-          # Check variables
+          # Check variables exist
           if ([string]::IsNullOrWhiteSpace($env:VAR_FORK_REPO)) {
             $errors += "Variable 'FORK_REPO' is not set"
           }
@@ -48,13 +48,32 @@ jobs:
             $errors += "Variable 'LOCAL_FOLDER' is not set"
           }
           
+          # Check for leading/trailing whitespace in variables
+          $varsToCheck = @{
+            'FORK_REPO' = $env:VAR_FORK_REPO
+            'BCTECH_SOURCE_FOLDER' = $env:VAR_BCTECH_SOURCE_FOLDER
+            'LOCAL_FOLDER' = $env:VAR_LOCAL_FOLDER
+          }
+          
+          foreach ($var in $varsToCheck.GetEnumerator()) {
+            if ($null -ne $var.Value) {
+              $trimmed = $var.Value.Trim()
+              if ($var.Value -ne $trimmed) {
+                $errors += "Variable '$($var.Key)' has leading or trailing whitespace. Value: '$($var.Value)'"
+              }
+              if ($var.Value -match '[\r\n]') {
+                $errors += "Variable '$($var.Key)' contains newline characters"
+              }
+            }
+          }
+          
           if ($errors.Count -gt 0) {
-            Write-Host "::error::Missing required configuration:"
+            Write-Host "::error::Configuration errors found:"
             $errors | ForEach-Object { Write-Host "::error::  - $_" }
             exit 1
           }
           
-          Write-Host "All required secrets and variables are configured"
+          Write-Host "All required secrets and variables are configured correctly"
 
   sync:
     runs-on: ubuntu-latest
@@ -75,16 +94,6 @@ jobs:
           sparse-checkout: |
             ${{ vars.BCTECH_SOURCE_FOLDER }}
           sparse-checkout-cone-mode: false
-
-      - name: Debug - List checked out contents
-        run: |
-          Write-Host "Contents of source-repo:"
-          Get-ChildItem -Path source-repo -Recurse -Depth 3 | ForEach-Object {
-            Write-Host $_.FullName
-          }
-          Write-Host ""
-          Write-Host "Looking for: source-repo/${{ vars.BCTECH_SOURCE_FOLDER }}"
-          Write-Host "Path exists: $(Test-Path 'source-repo/${{ vars.BCTECH_SOURCE_FOLDER }}')"
 
       - name: Get source commit info
         id: source-info
@@ -118,14 +127,6 @@ jobs:
           TARGET_FOLDER: ${{ vars.LOCAL_FOLDER }}
           SOURCE_FOLDER: ${{ vars.BCTECH_SOURCE_FOLDER }}
         run: |
-          Write-Host "Current directory: $(Get-Location)"
-          Write-Host "SOURCE_FOLDER env var: '$env:SOURCE_FOLDER'"
-          Write-Host "SOURCE_FOLDER bytes: $([System.Text.Encoding]::UTF8.GetBytes($env:SOURCE_FOLDER) -join ',')"
-          Write-Host ""
-          Write-Host "Contents of source-repo:"
-          Get-ChildItem "source-repo" -Depth 1
-          Write-Host ""
-          
           # Remove existing folder in target (if exists)
           $targetPath = Join-Path "target-repo" $env:TARGET_FOLDER
           if (Test-Path -LiteralPath $targetPath) {

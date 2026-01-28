@@ -38,7 +38,7 @@ jobs:
             $errors += "Secret 'FORKREPOPAT' is not set"
           }
           
-          # Check variables
+          # Check variables exist
           if ([string]::IsNullOrWhiteSpace($env:VAR_FORK_REPO)) {
             $errors += "Variable 'FORK_REPO' is not set"
           }
@@ -49,13 +49,32 @@ jobs:
             $errors += "Variable 'LOCAL_FOLDER' is not set"
           }
           
+          # Check for leading/trailing whitespace in variables
+          $varsToCheck = @{
+            'FORK_REPO' = $env:VAR_FORK_REPO
+            'BCTECH_SOURCE_FOLDER' = $env:VAR_BCTECH_SOURCE_FOLDER
+            'LOCAL_FOLDER' = $env:VAR_LOCAL_FOLDER
+          }
+          
+          foreach ($var in $varsToCheck.GetEnumerator()) {
+            if ($null -ne $var.Value) {
+              $trimmed = $var.Value.Trim()
+              if ($var.Value -ne $trimmed) {
+                $errors += "Variable '$($var.Key)' has leading or trailing whitespace. Value: '$($var.Value)'"
+              }
+              if ($var.Value -match '[\r\n]') {
+                $errors += "Variable '$($var.Key)' contains newline characters"
+              }
+            }
+          }
+          
           if ($errors.Count -gt 0) {
-            Write-Host "::error::Missing required configuration:"
+            Write-Host "::error::Configuration errors found:"
             $errors | ForEach-Object { Write-Host "::error::  - $_" }
             exit 1
           }
           
-          Write-Host "All required secrets and variables are configured"
+          Write-Host "All required secrets and variables are configured correctly"
 
   create-fork-pr:
     runs-on: ubuntu-latest
