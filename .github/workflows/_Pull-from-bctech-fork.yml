@@ -114,19 +114,20 @@ jobs:
           }
 
       - name: Sync folder
+        env:
+          TARGET_FOLDER: ${{ vars.LOCAL_FOLDER }}
+          SOURCE_FOLDER: ${{ vars.BCTECH_SOURCE_FOLDER }}
         run: |
-          $targetFolder = "${{ vars.LOCAL_FOLDER }}"
-          $sourceFolder = "${{ vars.BCTECH_SOURCE_FOLDER }}"
-          
           # Remove existing folder in target (if exists)
-          if (Test-Path "target-repo/$targetFolder") {
-            Remove-Item -Recurse -Force "target-repo/$targetFolder"
+          $targetPath = "target-repo/$env:TARGET_FOLDER"
+          if (Test-Path $targetPath) {
+            Remove-Item -Recurse -Force $targetPath
           }
           
           # Copy the folder from source to target
-          $sourcePath = "source-repo/$sourceFolder"
+          $sourcePath = "source-repo/$env:SOURCE_FOLDER"
           if (Test-Path $sourcePath) {
-            Copy-Item -Recurse $sourcePath "target-repo/$targetFolder"
+            Copy-Item -Recurse $sourcePath $targetPath
             Write-Host "Folder synced successfully"
           } else {
             Write-Error "Source folder not found: $sourcePath"
